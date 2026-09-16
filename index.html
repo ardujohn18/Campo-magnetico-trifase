@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Campo Magnetico Rotante Trifase</title>
+<style>
+  body {
+    margin: 0;
+    background: #0a0e1a;
+    color: #e0e6f0;
+    font-family: 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4em; margin: 5px 0 15px; color: #7dd3fc; }
+  canvas { background: #0d1424; border-radius: 12px; box-shadow: 0 0 30px rgba(125,211,252,0.2); }
+  .controls {
+    margin-top: 15px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  label { font-size: 0.9em; color: #94a3b8; }
+  input[type=range] { width: 180px; }
+  button {
+    background: #1e40af; color: white; border: none;
+    padding: 8px 18px; border-radius: 6px; cursor: pointer;
+    font-size: 0.9em;
+  }
+  button:hover { background: #2563eb; }
+  .legend { font-size: 0.85em; color: #94a3b8; margin-top: 8px; text-align: center;}
+</style>
+</head>
+<body>
+  <h1>🌀 Campo Magnetico Rotante Trifase</h1>
+  <canvas id="cv" width="700" height="700"></canvas>
+
+  <div class="controls">
+    <label>Velocità: <input type="range" id="speed" min="0" max="3" step="0.05" value="1"></label>
+    <button id="pause">⏸ Pausa</button>
+    <button id="reset">↻ Reset</button>
+  </div>
+  <div class="legend">
+    A = <span style="color:#ef4444">●</span> rosso &nbsp;|&nbsp;
+    B = <span style="color:#22c55e">●</span> verde &nbsp;|&nbsp;
+    C = <span style="color:#3b82f6">●</span> blu &nbsp;|&nbsp;
+    B<sub>tot</sub> = <span style="color:#facc15">●</span> giallo
+  </div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const cx = W/2, cy = H/2;
+const R = 200;        // raggio avvolgimenti
+const Lmax = 130;     // lunghezza massima vettore campo
+
+let t = 0;
+let paused = false;
+let speed = 1;
+let lastTime = performance.now();
+
+// angoli degli assi degli avvolgimenti (in radianti)
+// A: verso destra? No, seguiamo convenzione: A verso l'alto = -90°? Usiamo 0° = destra.
+// Mettiamo A in alto: -90°, B a 30°, C a 150° così formano 120° partendo dall'alto
+const angA = -Math.PI/2;              // -90°
+const angB = -Math.PI/2 + 2*Math.PI/3; //  30°
+const angC = -Math.PI/2 + 4*Math.PI/3; // 150°
+
+function drawArrow(x1,y1,x2,y2,color,width=3) {
+  const headLen = 12;
+  const dx = x2-x1, dy = y2-y1;
+  const angle = Math.atan2(dy,dx);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2-Math.cos(angle)*headLen*0.8, y2-Math.sin(angle)*headLen*0.8);
+  ctx.stroke();
+  // punta
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-headLen*Math.cos(angle-0.4), y2-headLen*Math.sin(angle-0.4));
+  ctx.lineTo(x2-headLen*Math.cos(angle+0.4), y2-headLen*Math.sin(angle+0.4));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCoil(angle, current, color) {
+  // Disegna l'avvolgimento come un settore circolare
+  const x = cx + Math.cos(angle)*R;
+  const y = cy + Math.sin(angle)*R;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Cerchio dell'avvolgimento
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, Math.PI*2);
+  ctx.fillStyle = color + '22';
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Simbolo corrente (intensità col colore più o meno acceso)
+  const intens = Math.abs(current);
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, Math.PI*2);
+  ctx.fillStyle = color;
+  ctx.globalAlpha = intens;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Frecce direzione corrente (entrante/uscente)
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(current >= 0 ? '×' : '•', 0, 0);
+
+  ctx.restore();
+}
+
+function draw() {
+  // pulizia
+  ctx.fillStyle = '#0d1424';
+  ctx.fillRect(0,0,W,H);
+
+  // cerchio di riferimento
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI*2);
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // correnti
+  const ia = Math.cos(t);
+  const ib = Math.cos(t - 2*Math.PI/3);
+  const ic = Math.cos(t - 4*Math.PI/3);
+
+  // avvolgimenti
+  drawCoil(angA, ia, '#ef4444');
+  drawCoil(angB, ib, '#22c55e');
+  drawCoil(angC, ic, '#3b82f6');
+
+  // etichette
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('A', cx + Math.cos(angA)*(R+45), cy + Math.sin(angA)*(R+45));
+  ctx.fillText('B', cx + Math.cos(angB)*(R+45), cy + Math.sin(angB)*(R+45));
+  ctx.fillText('C', cx + Math.cos(angC)*(R+45), cy + Math.sin(angC)*(R+45));
+
+  // campi individuali (pulsanti lungo i loro assi)
+  const ba = ia * Lmax;
+  const bb = ib * Lmax;
+  const bc = ic * Lmax;
+
+  drawArrow(cx, cy, cx + Math.cos(angA)*ba, cy + Math.sin(angA)*ba, '#ef4444', 3);
+  drawArrow(cx, cy, cx + Math.cos(angB)*bb, cy + Math.sin(angB)*bb, '#22c55e', 3);
+  drawArrow(cx, cy, cx + Math.cos(angC)*bc, cy + Math.sin(angC)*bc, '#3b82f6', 3);
+
+  // campo risultante (somma vettoriale)
+  const bx = Math.cos(angA)*ba + Math.cos(angB)*bb + Math.cos(angC)*bc;
+  const by = Math.sin(angA)*ba + Math.sin(angB)*bb + Math.sin(angC)*bc;
+
+  drawArrow(cx, cy, cx + bx, cy + by, '#facc15', 5);
+
+  // cerchio tratteggiato dell'ampiezza costante
+  const bmag = Math.sqrt(bx*bx + by*by);
+  ctx.beginPath();
+  ctx.setLineDash([6,6]);
+  ctx.arc(cx, cy, bmag, 0, Math.PI*2);
+  ctx.strokeStyle = '#facc1566';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // info testuali
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '13px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`ωt = ${(t*180/Math.PI % 360).toFixed(1)}°`, 20, 30);
+  ctx.fillText(`i_A = ${ia.toFixed(2)}  i_B = ${ib.toFixed(2)}  i_C = ${ic.toFixed(2)}`, 20, 50);
+  ctx.fillText(`|B_tot| = ${(bmag/Lmax*1).toFixed(3)} (costante ≈ 1.5)`, 20, 70);
+
+  // vettore rotante angolo
+  const angle = Math.atan2(by, bx);
+  ctx.fillStyle = '#facc15';
+  ctx.textAlign = 'right';
+  ctx.fillText(`θ = ${((angle*180/Math.PI+360)%360).toFixed(1)}°`, W-20, 30);
+}
+
+function loop(now) {
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  if (!paused) {
+    t += dt * speed * 2.0; // velocità angolare
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('speed').addEventListener('input', e => {
+  speed = parseFloat(e.target.value);
+});
+document.getElementById('pause').addEventListener('click', e => {
+  paused = !paused;
+  e.target.textContent = paused ? '▶ Riprendi' : '⏸ Pausa';
+});
+document.getElementById('reset').addEventListener('click', () => {
+  t = 0;
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
